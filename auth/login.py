@@ -25,4 +25,4 @@ def login():
 
         st.session_state["user"] = response.user
         st.session_state["authenticated"] = True
-        st.experimental_rerun()
+        st.rerun()
