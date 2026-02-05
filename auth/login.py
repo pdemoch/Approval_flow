@@ -14,15 +14,15 @@ def login():
     password = st.text_input("Senha", type="password")
 
     if st.button("Entrar"):
-        try:
-            user = supabase.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
+        response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
 
-            st.session_state["user"] = user.user
-            st.session_state["authenticated"] = True
-            st.experimental_rerun()
+        if response.user is None:
+            st.error("Falha no login. Verifique email e senha.")
+            return
 
-        except Exception:
-            st.error("Usuário ou senha inválidos")
+        st.session_state["user"] = response.user
+        st.session_state["authenticated"] = True
+        st.experimental_rerun()
