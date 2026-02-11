@@ -1,8 +1,7 @@
 import streamlit as st
-from src.views import login, painel_transportador, painel_validacao, painel_faturamento
+from src.views import login, transportador, validacao, faturamento
 
-# Configuração da Página
-st.set_page_config(page_title="Logística Workflow", layout="wide")
+st.set_page_config(page_title="Sistema Logístico", layout="wide")
 
 # Inicialização de Sessão
 if "user" not in st.session_state:
@@ -10,26 +9,29 @@ if "user" not in st.session_state:
 if "role" not in st.session_state:
     st.session_state.role = None
 
-# Lógica de Roteamento
-if not st.session_state.user:
-    login.render() # Tela de Login
-else:
-    # Menu Lateral
+# Sidebar e Logout
+if st.session_state.user:
     with st.sidebar:
-        st.write(f"Usuário: {st.session_state.user.email}")
-        st.write(f"Perfil: {st.session_state.role}")
+        st.write(f"👤 {st.session_state.email}")
+        st.caption(f"Perfil: {st.session_state.role}")
         if st.button("Sair"):
             st.session_state.user = None
+            st.session_state.role = None
             st.rerun()
 
-    # Direcionamento por Perfil
+# Roteamento
+if not st.session_state.user:
+    login.render()
+else:
     role = st.session_state.role
-    
     if role == "transportador":
-        painel_transportador.render()
-    elif role == "validacao":
-        painel_validacao.render()
+        transportador.render()
+    elif role == "validacao" or role == "admin":
+        validacao.render()
     elif role == "faturamento":
-        painel_faturamento.render()
+        faturamento.render()
     elif role == "admin":
-        st.write("Painel Admin aqui")
+        st.write("Visão Admin Global (Adicionar tabs aqui se quiser)")
+        # Admin pode ver tudo, então poderia ter tabs para cada view
+    else:
+        st.error(f"Perfil {role} não configurado.")
