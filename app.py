@@ -26,7 +26,7 @@ else:
     role = st.session_state.role
     if role == "transportador":
         transportador.render()
-    elif role == "validacao" or role == "admin":
+    elif role == "validador" or role == "admin":
         validacao.render()
     elif role == "faturamento":
         faturamento.render()
