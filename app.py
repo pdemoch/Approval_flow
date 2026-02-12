@@ -15,7 +15,7 @@ if "email" not in st.session_state: # Garanta que o email comece como None
 # --- SIDEBAR E LOGOUT ---
 if st.session_state.user:
     with st.sidebar:
-        st.image("https://www.lineaalimentos.com.br/wp-content/themes/linea/assets/images/logo.png", width=150)
+        st.image("https://d3p2amk7tvag7f.cloudfront.net/brands/cf5d5446a2f529654d1f3e3e8ff0f6ca24729485.png", width=150)
         st.divider()
         
         # Uso do .get para evitar quebra caso o email seja None
