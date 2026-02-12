@@ -76,29 +76,39 @@ def render():
         st.warning(f"🔔 **{qtd}** notas selecionadas. Total do Lote: **R$ {soma:,.2f}**")
         
         with st.form("form_faturamento"):
-            cod_lote = st.text_input("Código/ID do Lote (Ex: FAT-2024-001)", 
-                                    value=f"FAT-{datetime.now().strftime('%Y%m%d%H%M')}")
+            # Deixamos o valor padrão vazio para forçar o preenchimento manual
+            cod_lote = st.text_input("📝 Digite o Código Interno do Lote (Obrigatório)", value="")
             
+            st.caption("Exemplo: Nº do SAP, Ordem de Pagamento ou Código do Banco.")
+
             if st.form_submit_button("🚀 Finalizar Faturamento e Gerar Lote", type="primary"):
-                ids_para_atualizar = itens_selecionados['id'].tolist()
-                
-                try:
-                    # Atualiza todas as solicitações selecionadas no banco
-                    db.table("solicitacoes").update({
-                        "faturado": True,
-                        "id_fatura": cod_lote,
-                        "status": "Finalizado"
-                    }).in_("id", ids_para_atualizar).execute()
+                # VALIDAÇÃO: Se o código estiver vazio, não prossegue
+                if not cod_lote:
+                    st.error("❌ Erro: Você precisa informar o **Código Interno** para finalizar o faturamento.")
+                else:
+                    ids_para_atualizar = itens_selecionados['id'].tolist()
                     
-                    # Salva no histórico de cada uma
-                    for id_sol in ids_para_atualizar:
-                        salvar_historico(id_sol, "Finalizado", f"Lote de faturamento gerado: {cod_lote}")
-                    
-                    st.success(f"✅ Lote {cod_lote} finalizado com sucesso!")
-                    st.balloons()
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"Erro ao processar faturamento: {e}")
+                    try:
+                        # Atualiza todas as solicitações selecionadas no banco
+                        db.table("solicitacoes").update({
+                            "faturado": True,
+                            "id_fatura": cod_lote, # Aqui entra o seu código interno
+                            "status": "Finalizado"
+                        }).in_("id", ids_para_atualizar).execute()
+                        
+                        # Salva no histórico de cada uma para rastreabilidade
+                        for id_sol in ids_para_atualizar:
+                            salvar_historico(
+                                id_sol, 
+                                "Finalizado", 
+                                f"Faturamento concluído. Código Interno: {cod_lote}"
+                            )
+                        
+                        st.success(f"✅ Lote {cod_lote} finalizado e registrado com sucesso!")
+                        st.balloons()
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Erro ao processar faturamento: {e}")
     else:
         st.write("👆 Marque os itens na tabela para prosseguir.")

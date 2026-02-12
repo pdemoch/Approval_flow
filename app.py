@@ -1,7 +1,8 @@
 import streamlit as st
-from src.views import login, transportador, validacao, faturamento
+# Incluído o import da view de usuários
+from src.views import login, transportador, validacao, faturamento, gestao, usuarios 
 
-st.set_page_config(page_title="Sistema Logístico", layout="wide")
+st.set_page_config(page_title="Sistema Logístico - Linea", layout="wide")
 
 # Inicialização de Sessão
 if "user" not in st.session_state:
@@ -12,26 +13,57 @@ if "role" not in st.session_state:
 # Sidebar e Logout
 if st.session_state.user:
     with st.sidebar:
-        st.write(f"👤 {st.session_state.email}")
-        st.caption(f"Perfil: {st.session_state.role}")
-        if st.button("Sair"):
+        st.image("https://www.lineaalimentos.com.br/wp-content/themes/linea/assets/images/logo.png", width=150)
+        st.divider()
+        # Tratamento simples para evitar erro caso st.session_state.email não exista
+        email_display = st.session_state.get('email', 'Usuário').split('@')[0].capitalize()
+        st.write(f"👤 **{email_display}**")
+        st.caption(f"🔑 Perfil: {st.session_state.role.capitalize()}")
+        
+        if st.button("🚪 Sair", use_container_width=True):
             st.session_state.user = None
             st.session_state.role = None
+            st.session_state.email = None
             st.rerun()
 
-# Roteamento
+# Roteamento de Telas
 if not st.session_state.user:
     login.render()
 else:
     role = st.session_state.role
+
     if role == "transportador":
         transportador.render()
-    elif role == "validador" or role == "admin":
+
+    elif role == "validacao":
         validacao.render()
+
     elif role == "faturamento":
         faturamento.render()
+
+    elif role == "gestao":
+        gestao.render()
+
     elif role == "admin":
-        st.write("Visão Admin Global (Adicionar tabs aqui se quiser)")
-        # Admin pode ver tudo, então poderia ter tabs para cada view
+        # Adicionada a aba "Configurações de Usuários"
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📊 Gestão/BI", 
+            "⚖️ Validação", 
+            "💰 Faturamento", 
+            "🚚 Visão Transportador",
+            "👥 Usuários"
+        ])
+        
+        with tab1:
+            gestao.render()
+        with tab2:
+            validacao.render()
+        with tab3:
+            faturamento.render()
+        with tab4:
+            transportador.render()
+        with tab5:
+            usuarios.render() # <-- Renderiza a gestão de permissões
+
     else:
-        st.error(f"Perfil {role} não configurado.")
+        st.error(f"Perfil '{role}' não reconhecido. Contrate o suporte.")
