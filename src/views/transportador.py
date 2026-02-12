@@ -1,167 +1,191 @@
 import streamlit as st
 import pandas as pd
 from src.database import db
-from datetime import datetime
 import uuid
 
-# Função auxiliar para upload de lista de arquivos
+# --- FUNÇÕES DE APOIO ---
 def upload_arquivos(files):
     urls = []
     bucket = "comprovantes"
-    
     for arquivo in files:
         try:
             file_ext = arquivo.name.split(".")[-1]
             file_name = f"{uuid.uuid4()}.{file_ext}"
-            
             db.storage.from_(bucket).upload(
                 path=file_name,
                 file=arquivo.getvalue(),
                 file_options={"content-type": arquivo.type}
             )
-            # Pega URL publica
             public_url = db.storage.from_(bucket).get_public_url(file_name)
             urls.append(public_url)
         except Exception as e:
-            st.error(f"Erro ao fazer upload de {arquivo.name}: {e}")
+            st.error(f"Erro no upload: {e}")
             return None
     return urls
 
-def render():
-    # --- CABEÇALHO ---
-    st.title("🚚 Painel do Transportador")
-    st.caption(f"Logado como: {st.session_state['email']}")
+# --- MODAL DE DETALHES E EDIÇÃO ---
+@st.dialog("📋 Detalhes da Solicitação")
+def modal_detalhes(item):
+    st.markdown(f"### Solicitação NF: {item['numero_nf']}")
+    st.write(f"**Status Atual:** `{item['status']}`")
+    
+    pode_editar = item['status'] == 'Pendente Documentos'
+    
+    if item.get('observacao'):
+        st.error(f"**Motivo da Pendência:** {item['observacao']}")
 
-    # Busca dados atualizados
+    with st.form("form_edicao_detalhe"):
+        c1, c2 = st.columns(2)
+        novo_cliente = c1.text_input("Cliente", value=item['cliente'], disabled=not pode_editar)
+        novo_valor = c2.number_input("Valor", value=float(item['valor']), disabled=not pode_editar)
+        
+        st.write("**Arquivos Anexados:**")
+        cols_docs = st.columns(len(item['comprovante_url']) if item['comprovante_url'] else 1)
+        for idx, url in enumerate(item['comprovante_url']):
+            cols_docs[idx % len(cols_docs)].link_button(f"📄 Doc {idx+1}", url, use_container_width=True)
+            
+        if pode_editar:
+            st.info("💡 Corrija os dados acima ou anexe novos arquivos para reenviar.")
+            novos_up = st.file_uploader("Adicionar novos comprovantes", accept_multiple_files=True)
+            
+            if st.form_submit_button("✅ Salvar e Reenviar"):
+                payload = {
+                    "cliente": novo_cliente,
+                    "valor": novo_valor,
+                    "status": "Aberto",
+                    "observacao": None
+                }
+                if novos_up:
+                    urls_novas = upload_arquivos(novos_up)
+                    payload["comprovante_url"] = item['comprovante_url'] + urls_novas
+                
+                db.table("solicitacoes").update(payload).eq("id", item['id']).execute()
+                st.success("Solicitação atualizada!")
+                st.rerun()
+        else:
+            if st.form_submit_button("Fechar"):
+                st.rerun()
+
+# --- VIEW PRINCIPAL ---
+def render():
+    # --- CSS LINEA ALIMENTOS ---
+    st.markdown("""
+        <style>
+        /* Título e textos */
+        .main h1 { color: #002D58; } /* Azul Marinho Linea */
+        
+        /* Estilização dos Botões de Filtro */
+        div.stButton > button {
+            height: 80px;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        /* Cores específicas por Botão (Identidade Linea) */
+        button[key="f_todos"] { background-color: #002D58 !important; color: white !important; border: none; }
+        button[key="f_pendente"] { background-color: #E30613 !important; color: white !important; border: none; } /* Vermelho Alerta */
+        button[key="f_analise"] { background-color: #009FE3 !important; color: white !important; border: none; }  /* Azul Claro Linea */
+        button[key="f_faturado"] { background-color: #28A745 !important; color: white !important; border: none; } /* Verde Sucesso */
+        
+        button:hover { transform: scale(1.02); opacity: 0.9; }
+        
+        /* Ajuste da Tabela */
+        [data-testid="stMetricValue"] { color: #002D58; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.title("🚚 Painel do Transportador")
+    st.caption(f"Acesso: {st.session_state['email']} | **Portal de Custos Logísticos**")
+
+    if "filtro_status" not in st.session_state:
+        st.session_state.filtro_status = "Todos"
+
+    # Busca dados
     try:
-        response = db.table("solicitacoes").select("*").eq("user_id", st.session_state["user"].id).execute()
+        response = db.table("solicitacoes").select("*").eq("user_id", st.session_state["user"].id).order("id", desc=True).execute()
         df = pd.DataFrame(response.data)
-    except Exception as e:
-        st.error("Erro de conexão com banco de dados")
+    except:
+        st.error("Falha ao carregar dados.")
         return
 
-    # --- DASHBOARD (KPIs) ---
+    # --- DASHBOARD DE FILTROS ---
     if not df.empty:
-        st.subheader("Visão Geral")
+        st.subheader("Filtrar por Status")
+        cols = st.columns(4)
         
-        # Cálculos
-        total = len(df)
-        abertos = len(df[df['status'] == 'Aberto'])
-        pendentes = len(df[df['status'] == 'Pendente Documentos'])
-        recusados = len(df[df['status'] == 'Recusada'])
-        faturados = len(df[df['faturado'] == True])
+        # Botões que agem como Filtros Clicáveis
+        if cols[0].button(f"🔵 TODOS\n{len(df)}", key="f_todos"): st.session_state.filtro_status = "Todos"
         
-        # Cards de Métricas
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Total", total)
-        col2.metric("Abertos", abertos, delta_color="off")
-        col3.metric("Pendentes", pendentes, delta="-Atenção", delta_color="inverse")
-        col4.metric("Recusados", recusados, delta="-Pare", delta_color="inverse")
-        col5.metric("Faturados", faturados, delta="Sucesso")
+        pen = len(df[df['status'] == 'Pendente Documentos'])
+        if cols[1].button(f"🔴 PENDENTES\n{pen}", key="f_pendente"): st.session_state.filtro_status = "Pendente Documentos"
         
-        st.divider()
+        ana = len(df[df['status'] == 'Aberto'])
+        if cols[2].button(f"🟡 ANÁLISE\n{ana}", key="f_analise"): st.session_state.filtro_status = "Aberto"
+        
+        fat = len(df[df['faturado'] == True])
+        if cols[3].button(f"🟢 FATURADOS\n{fat}", key="f_faturado"): st.session_state.filtro_status = "Finalizado"
 
-    # --- ÁREA DE AÇÃO URGENTE (PENDÊNCIAS) ---
-    # Se tiver algo pendente, mostramos primeiro com destaque!
+    # --- ÁREA DE CORREÇÃO RÁPIDA ---
     pendencias_df = df[df['status'] == 'Pendente Documentos'] if not df.empty else pd.DataFrame()
-    
     if not pendencias_df.empty:
-        st.warning(f"⚠️ Você tem {len(pendencias_df)} solicitações precisando de correção!")
-        
-        for index, row in pendencias_df.iterrows():
-            with st.expander(f"🔴 CORRIGIR: NF {row['numero_nf']} - {row['cliente']}", expanded=True):
-                c1, c2 = st.columns([2, 1])
-                c1.error(f"**Motivo da Pendência:** {row.get('observacao', 'Sem observação registrada.')}")
-                c2.write(f"**Valor:** R$ {row['valor']}")
-                
-                with st.form(key=f"fix_form_{row['id']}"):
-                    st.write("Anexe os documentos corretos/faltantes:")
-                    novos_arquivos = st.file_uploader("Novos Comprovantes", accept_multiple_files=True, key=f"up_{row['id']}")
-                    
-                    if st.form_submit_button("Enviar Correção"):
-                        if novos_arquivos:
-                            urls_novas = upload_arquivos(novos_arquivos)
-                            if urls_novas:
-                                # Atualiza status para Aberto novamente e salva novas URLs
-                                db.table("solicitacoes").update({
-                                    "status": "Aberto",
-                                    "comprovante_url": urls_novas, # Sobrescreve ou concatena (aqui estou sobrescrevendo para limpar o erro)
-                                    "observacao": None # Limpa a observação antiga
-                                }).eq("id", row['id']).execute()
-                                st.success("Correção enviada! O item voltou para análise.")
-                                st.rerun()
-                        else:
-                            st.warning("Você precisa anexar arquivos para corrigir.")
+        st.error(f"🛑 ATENÇÃO: Você possui {len(pendencias_df)} solicitações com erro. Clique na lista abaixo para corrigir.")
 
-    # --- FORMULÁRIO DE NOVA SOLICITAÇÃO ---
-    with st.expander("➕ Nova Solicitação", expanded=False):
-        with st.form("form_solicitacao", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            nf = col1.text_input("Número NF")
-            cliente = col2.text_input("Cliente")
-            tipo = col1.selectbox("Tipo Custo", ["Diaria", "Devolução", "Paletização", "Pernoite"])
-            valor = col2.number_input("Valor (R$)", min_value=0.0, step=0.01)
-            dt_emissao = col1.date_input("Emissão NF")
-            dt_entrega = col2.date_input("Entrega NF")
+    # --- NOVA SOLICITAÇÃO ---
+    with st.expander("➕ Registrar Novo Custo Logístico", expanded=False):
+        with st.form("form_nova_linea", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            nf = c1.text_input("Número da Nota Fiscal")
+            cli = c2.text_input("Nome do Cliente")
+            tipo = c1.selectbox("Tipo de Operação", ["Diaria", "Devolução", "Paletização", "Pernoite", "Ajudante"])
+            val = c2.number_input("Valor Reembolso (R$)", min_value=0.0, step=0.01)
+            up = st.file_uploader("Anexar Comprovantes (Múltiplos)", accept_multiple_files=True)
             
-            # Múltiplos Arquivos
-            arquivos = st.file_uploader("Comprovantes (PDF/JPG)", type=["pdf", "jpg", "jpeg", "png"], accept_multiple_files=True)
-            
-            if st.form_submit_button("Enviar Solicitação", type="primary"):
-                if not (nf and cliente and arquivos):
-                    st.error("Preencha todos os campos e anexe pelo menos um comprovante.")
-                else:
-                    urls = upload_arquivos(arquivos)
+            if st.form_submit_button("Enviar para Validação", type="primary"):
+                if nf and cli and up:
+                    urls = upload_arquivos(up)
                     if urls:
                         payload = {
                             "user_id": st.session_state["user"].id,
                             "solicitante_email": st.session_state["email"],
-                            "numero_nf": nf,
-                            "cliente": cliente,
-                            "tipo_custo": tipo,
-                            "valor": valor,
-                            "data_emissao_nf": str(dt_emissao),
-                            "data_entrega_nf": str(dt_entrega),
-                            "comprovante_url": urls, # Agora salva lista
-                            "status": "Aberto"
+                            "numero_nf": nf, "cliente": cli, "tipo_custo": tipo, "valor": val,
+                            "comprovante_url": urls, "status": "Aberto"
                         }
-                        try:
-                            db.table("solicitacoes").insert(payload).execute()
-                            st.success("Solicitação criada com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao salvar no banco: {e}")
+                        db.table("solicitacoes").insert(payload).execute()
+                        st.success("Solicitação enviada com sucesso!")
+                        st.rerun()
+                else:
+                    st.warning("Preencha os campos obrigatórios e anexe os documentos.")
 
-    # --- TABELA HISTÓRICO ---
+    # --- LISTA DE SOLICITAÇÕES ---
     st.divider()
-    st.subheader("Minhas Solicitações")
-
-    if not df.empty:
-        # Preparando visualização
-        df_view = df.copy()
+    df_filtrado = df if st.session_state.filtro_status == "Todos" else df[df['status'] == st.session_state.filtro_status]
+    
+    st.subheader(f"Lista: {st.session_state.filtro_status}")
+    
+    if not df_filtrado.empty:
+        # Interface de Seleção e Ação
+        col_sel, col_btn = st.columns([3, 1])
+        selecionado = col_sel.selectbox("Selecione uma linha para ver detalhes:", 
+                                  df_filtrado.index, 
+                                  format_func=lambda x: f"NF: {df_filtrado.loc[x, 'numero_nf']} | {df_filtrado.loc[x, 'cliente']} ({df_filtrado.loc[x, 'status']})")
         
-        # Configuração da tabela bonita
+        if col_btn.button("🔍 Ver Detalhes / Editar", use_container_width=True):
+            modal_detalhes(df_filtrado.loc[selecionado].to_dict())
+
         st.dataframe(
-            df_view,
+            df_filtrado,
             column_config={
-                "id": None, # Esconde ID
-                "user_id": None, # Esconde User ID
-                "solicitante_email": None, # Ele já sabe o email dele
-                "created_at": st.column_config.DatetimeColumn("Criado em", format="D/M/Y HH:mm"),
-                "data_emissao_nf": st.column_config.DateColumn("Emissão"),
-                "data_entrega_nf": st.column_config.DateColumn("Entrega"),
-                "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-                "status": st.column_config.Column(
-                    "Status",
-                    help="Status atual do processo",
-                    width="medium",
-                ),
-                "comprovante_url": st.column_config.ListColumn("Arquivos"), # Mostra como lista
-                "observacao": st.column_config.TextColumn("Observações Validador"),
-                "faturado": st.column_config.CheckboxColumn("Faturado?")
+                "id": "ID", "user_id": None, "solicitante_email": None,
+                "created_at": st.column_config.DatetimeColumn("Data Solicitação", format="D/M/Y HH:mm"),
+                "numero_nf": "NF", "cliente": "Cliente",
+                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                "status": "Status Atual",
+                "comprovante_url": None,
+                "observacao": "Observação"
             },
-            hide_index=True,
-            use_container_width=True
+            hide_index=True, use_container_width=True
         )
     else:
-        st.info("Nenhum registro encontrado.")
+        st.info("Nenhuma solicitação encontrada para este filtro.")
