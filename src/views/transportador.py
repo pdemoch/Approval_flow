@@ -166,10 +166,32 @@ def render():
         st.dataframe(
             df_filtrado,
             column_config={
-                "id": None, "user_id": None, "solicitante_email": None,
-                "data_emissao_nf": "Emissão", "data_entrega_nf": "Entrega",
-                "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-                "comprovante_url": None, "observacao": "Motivo"
+                "id": None, # Esconde o ID técnico
+                "user_id": None, 
+                "solicitante_email": None,
+                "created_at": st.column_config.DatetimeColumn(
+                    "Data Solicitação", 
+                    format="DD/MM/YYYY HH:mm" # Formato Brasil
+                ),
+                "numero_nf": "NF",
+                "cliente": "Cliente",
+                "tipo_custo": "Tipo",
+                "valor": st.column_config.NumberColumn(
+                    "Valor (R$)", 
+                    format="R$ %.2f"
+                ),
+                "data_emissao_nf": st.column_config.DateColumn(
+                    "Emissão", 
+                    format="DD/MM/YYYY" # Data sem hora
+                ),
+                "data_entrega_nf": st.column_config.DateColumn(
+                    "Entrega", 
+                    format="DD/MM/YYYY" # Data sem hora
+                ),
+                "status": "Status Atual",
+                "comprovante_url": None, # Escondemos a URL bruta
+                "observacao": "Motivo/Obs"
             },
-            hide_index=True, use_container_width=True
+            hide_index=True, 
+            use_container_width=True
         )
