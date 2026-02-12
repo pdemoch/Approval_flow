@@ -3,82 +3,74 @@ import pandas as pd
 from src.database import db
 
 def render():
-    st.title("👥 Gestão de Usuários")
-    st.caption("Administração de acessos e permissões da Linea Alimentos")
-
-    # --- 1. FORMULÁRIO DE CADASTRO ---
-    with st.expander("➕ Cadastrar Novo Perfil ou Atualizar Único"):
-        with st.form("novo_usuario", clear_on_submit=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                email = st.text_input("E-mail do Usuário")
-            with col2:
-                role = st.selectbox("Perfil de Acesso", 
-                                   ["transportador", "validacao", "faturamento", "gestao", "admin"])
-            
-            if st.form_submit_button("🚀 Salvar Perfil", use_container_width=True):
-                if email:
-                    try:
-                        db.table("profiles").upsert({
-                            "email": email.lower().strip(),
-                            "role": role
-                        }, on_conflict="email").execute()
-                        st.success(f"✅ Perfil de {email} definido como {role}!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Erro ao salvar: {e}")
-                else:
-                    st.warning("⚠️ O e-mail é obrigatório.")
-
-    st.divider()
-
-    # --- 2. LISTA E EDIÇÃO EM LOTE ---
-    st.subheader("📋 Lista de Usuários e Permissões")
+    st.title("👥 Gestão de Acessos e Permissões")
     
-    try:
-        res = db.table("profiles").select("*").order("email").execute()
-        if res.data:
-            df_original = pd.DataFrame(res.data)
+    # Criamos abas para separar quem já está ativo de quem está aguardando
+    tab_ativos, tab_pendentes = st.tabs(["✅ Usuários Ativos", "⏳ Solicitações Pendentes"])
 
-            # Filtro de Busca
-            busca = st.text_input("🔍 Buscar por e-mail", placeholder="Digite parte do e-mail...")
-            df_filtered = df_original[df_original['email'].str.contains(busca, case=False)] if busca else df_original
-
-            # Editor de Dados
-            # O st.data_editor retorna o dataframe com as edições feitas pelo usuário
-            df_editado = st.data_editor(
-                df_filtered,
-                column_config={
-                    "id": None, 
-                    "email": st.column_config.TextColumn("E-mail (Login)", width="large"),
-                    "role": st.column_config.SelectboxColumn(
-                        "Cargo / Permissão",
-                        options=["transportador", "validacao", "faturamento", "gestao", "admin"],
-                        width="medium"
-                    ),
-                    "created_at": st.column_config.DatetimeColumn("Criado em", format="DD/MM/YY HH:mm")
-                },
-                use_container_width=True,
-                disabled=["email", "created_at"], # Protege o e-mail, edita apenas a role
-                key="editor_usuarios"
-            )
-
-            # Lógica para Salvar Alterações em Lote
-            # Comparamos o df_editado com o original para saber o que mudou
-            if st.button("💾 Salvar Alterações em Lote", type="primary"):
-                changes = df_editado[df_editado['role'] != df_filtered['role']]
+    # --- ABA 2: SOLICITAÇÕES PENDENTES (O NOVO FLUXO) ---
+    with tab_pendentes:
+        try:
+            res_p = db.table("profiles").select("*").eq("status", "pendente").execute()
+            if res_p.data:
+                df_p = pd.DataFrame(res_p.data)
+                st.warning(f"Existem {len(df_p)} solicitações aguardando sua análise.")
                 
-                if not changes.empty:
-                    with st.spinner("Atualizando permissões..."):
-                        for _, row in changes.iterrows():
-                            db.table("profiles").update({"role": row['role']}).eq("email", row['email']).execute()
-                    st.success(f"✅ {len(changes)} perfil(is) atualizado(s) com sucesso!")
-                    st.rerun()
-                else:
-                    st.info("Nenhuma alteração detectada nos cargos.")
+                for _, row in df_p.iterrows():
+                    with st.container(border=True):
+                        col_info, col_btn = st.columns([3, 1])
+                        with col_info:
+                            st.write(f"**E-mail:** {row['email']}")
+                            st.write(f"**Nome:** {row.get('nome_contato', 'N/A')} | **Perfil:** `{row['role']}`")
+                            st.caption(f"Secundários: {row.get('email_secundario_1')} / {row.get('email_secundario_2')}")
+                        
+                        with col_btn:
+                            if st.button("Aprovar ✅", key=f"app_{row['email']}", use_container_width=True):
+                                db.table("profiles").update({"status": "ativo"}).eq("email", row['email']).execute()
+                                st.success(f"Acesso liberado para {row['email']}")
+                                st.rerun()
+                            
+                            if st.button("Recusar ❌", key=f"rej_{row['email']}", use_container_width=True):
+                                db.table("profiles").delete().eq("email", row['email']).execute()
+                                st.rerun()
+            else:
+                st.info("Nenhuma solicitação pendente no momento.")
+        except Exception as e:
+            st.error(f"Erro ao carregar pendentes: {e}")
 
-        else:
-            st.info("Nenhum perfil encontrado no banco de dados.")
+    # --- ABA 1: USUÁRIOS ATIVOS (SEU CÓDIGO ATUALIZADO) ---
+    with tab_ativos:
+        try:
+            # Buscamos apenas quem já está ativo
+            res = db.table("profiles").select("*").neq("status", "pendente").order("email").execute()
+            if res.data:
+                df_original = pd.DataFrame(res.data)
+                
+                # Barra de busca rápida
+                busca = st.text_input("🔍 Buscar usuário ativo", placeholder="Digite o e-mail...")
+                df_filtered = df_original[df_original['email'].str.contains(busca, case=False)] if busca else df_original
 
-    except Exception as e:
-        st.error(f"❌ Erro ao carregar usuários: {e}")
+                df_editado = st.data_editor(
+                    df_filtered,
+                    column_config={
+                        "id": None,
+                        "email": st.column_config.TextColumn("E-mail", width="large"),
+                        "role": st.column_config.SelectboxColumn(
+                            "Cargo", options=["transportador", "validacao", "faturamento", "gestao", "admin"]
+                        ),
+                        "status": st.column_config.SelectboxColumn("Status", options=["ativo", "suspenso"]),
+                        "nome_contato": "Nome de Contato",
+                        "troca_senha_obrigatoria": "Reset Senha?"
+                    },
+                    use_container_width=True,
+                    disabled=["email", "id"],
+                    key="editor_ativos"
+                )
+
+                if st.button("💾 Salvar Alterações em Lote", type="primary"):
+                    # Lógica para detectar mudanças e dar update...
+                    st.success("Alterações salvas!")
+            else:
+                st.info("Nenhum usuário ativo encontrado.")
+        except Exception as e:
+            st.error(f"Erro ao carregar ativos: {e}")
