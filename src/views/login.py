@@ -2,7 +2,7 @@ import streamlit as st
 from src.database import db, supabase  # Importamos ambos: cliente de auth e db
 
 def render():
-    st.image("https://www.lineaalimentos.com.br/wp-content/themes/linea/assets/images/logo.png", width=180)
+    st.image("https://d3p2amk7tvag7f.cloudfront.net/brands/cf5d5446a2f529654d1f3e3e8ff0f6ca24729485.png", width=180)
     
     tab_login, tab_req, tab_reset = st.tabs(["🔑 Acessar", "📝 Solicitar Cadastro", "🔄 Recuperar Senha"])
 

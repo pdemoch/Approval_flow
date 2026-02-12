@@ -26,5 +26,10 @@ def get_db() -> Client:
     except Exception as e:
         st.error(f"Erro ao conectar com Supabase: {e}")
         st.stop()
-
+        
+# 1. Executa a função para pegar o cliente
 db = get_db()
+
+# 2. Cria um apelido chamado 'supabase' para o mesmo objeto
+# Isso resolve o erro de importação no app.py e login.py
+supabase = db
