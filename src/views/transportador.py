@@ -4,6 +4,18 @@ from src.database import db
 from datetime import datetime
 import uuid
 
+# --- NOVA FUNÇÃO DE HISTÓRICO ---
+def salvar_historico(solicitacao_id, status, observacao):
+    try:
+        db.table("historico").insert({
+            "solicitacao_id": solicitacao_id,
+            "status_na_epoca": status,
+            "observacao": observacao,
+            "usuario_email": st.session_state["email"]
+        }).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar histórico: {e}")
+
 # --- FUNÇÕES DE APOIO ---
 def upload_arquivos(files):
     urls = []
@@ -24,7 +36,7 @@ def upload_arquivos(files):
             return None
     return urls
 
-# --- MODAL DE DETALHES E EDIÇÃO (ESPELHO DO SEU FORMULÁRIO) ---
+# --- MODAL DE DETALHES E EDIÇÃO ---
 @st.dialog("📋 Detalhes e Edição da Solicitação")
 def modal_detalhes(item):
     st.markdown(f"### NF: {item['numero_nf']}")
@@ -34,9 +46,9 @@ def modal_detalhes(item):
     if item.get('observacao'):
         st.error(f"**Motivo da Pendência:** {item['observacao']}")
 
+    # --- INÍCIO DO FORMULÁRIO ---
     with st.form("form_edicao_detalhe"):
         c1, c2 = st.columns(2)
-        # Campos idênticos ao formulário de cadastro
         novo_nf = c1.text_input("Número NF", value=item['numero_nf'], disabled=not pode_editar)
         novo_cliente = c2.text_input("Cliente", value=item['cliente'], disabled=not pode_editar)
         
@@ -45,7 +57,6 @@ def modal_detalhes(item):
         novo_tipo = c1.selectbox("Tipo Custo", options=tipo_opcoes, index=idx_tipo, disabled=not pode_editar)
         novo_valor = c2.number_input("Valor (R$)", value=float(item['valor']), step=0.01, disabled=not pode_editar)
         
-        # Tratamento de datas para o calendário do Streamlit
         dt_emissao_val = datetime.strptime(item['data_emissao_nf'], '%Y-%m-%d').date() if item.get('data_emissao_nf') else datetime.now().date()
         dt_entrega_val = datetime.strptime(item['data_entrega_nf'], '%Y-%m-%d').date() if item.get('data_entrega_nf') else datetime.now().date()
         
@@ -56,10 +67,11 @@ def modal_detalhes(item):
         if item['comprovante_url']:
             for idx, url in enumerate(item['comprovante_url']):
                 st.link_button(f"🔗 Ver Documento {idx+1}", url)
-            
+        
+        # Ações do Form (SALVAR ou FECHAR)
         if pode_editar:
             st.markdown("---")
-            st.info("💡 Você pode corrigir os campos acima e anexar novos arquivos para reenviar.")
+            st.info("💡 Corrija os campos acima e anexe novos arquivos para reenviar.")
             novos_up = st.file_uploader("Adicionar novos arquivos", accept_multiple_files=True)
             
             if st.form_submit_button("✅ Salvar Alterações e Reenviar", type="primary"):
@@ -78,15 +90,40 @@ def modal_detalhes(item):
                     payload["comprovante_url"] = item['comprovante_url'] + urls_novas
                 
                 db.table("solicitacoes").update(payload).eq("id", item['id']).execute()
-                st.success("Solicitação atualizada e reenviada!")
+                salvar_historico(item['id'], "Aberto", "Transportador corrigiu e reenviou.")
+                st.success("Reenviado!")
                 st.rerun()
         else:
             if st.form_submit_button("Fechar"):
                 st.rerun()
+    # --- FIM DO FORMULÁRIO ---
+
+    # --- LINHA DO TEMPO (HISTÓRICO) FORA DO FORM ---
+    st.divider()
+    st.subheader("📜 Histórico da Solicitação")
+    
+    try:
+        hist_res = db.table("historico").select("*").eq("solicitacao_id", item['id']).order("created_at", desc=True).execute()
+        
+        if hist_res.data:
+            for h in hist_res.data:
+                dt_h = datetime.fromisoformat(h['created_at'].replace('Z', '+00:00')).strftime('%d/%m/%Y %H:%M')
+                with st.container(border=True):
+                    c1, c2 = st.columns([1, 3])
+                    c1.caption(f"⏰ {dt_h}")
+                    c1.caption(f"👤 {h['usuario_email'].split('@')[0]}")
+                    
+                    status_cor = "🔴" if "Pendente" in h['status_na_epoca'] else "🟢" if "Aprovado" in h['status_na_epoca'] else "🔵"
+                    c2.markdown(f"**{status_cor} {h['status_na_epoca']}**")
+                    if h['observacao']:
+                        c2.info(f"{h['observacao']}")
+        else:
+            st.write("Nenhum registro encontrado.")
+    except Exception as e:
+        st.error(f"Erro ao carregar histórico: {e}")
 
 # --- VIEW PRINCIPAL ---
 def render():
-    # CSS Customizado Linea Alimentos
     st.markdown("""
         <style>
         .main h1 { color: #002D58; }
@@ -104,7 +141,6 @@ def render():
     if "filtro_status" not in st.session_state:
         st.session_state.filtro_status = "Todos"
 
-    # Busca dados
     try:
         response = db.table("solicitacoes").select("*").eq("user_id", st.session_state["user"].id).order("id", desc=True).execute()
         df = pd.DataFrame(response.data)
@@ -112,7 +148,7 @@ def render():
         st.error("Erro ao carregar dados.")
         return
 
-    # --- FILTROS (KPIs CLICÁVEIS) ---
+    # --- FILTROS (KPIs) ---
     if not df.empty:
         cols = st.columns(4)
         if cols[0].button(f"🔵 TODOS\n{len(df)}", key="f_todos"): st.session_state.filtro_status = "Todos"
@@ -123,7 +159,7 @@ def render():
         fat = len(df[df['faturado'] == True])
         if cols[3].button(f"🟢 FATURADOS\n{fat}", key="f_faturado"): st.session_state.filtro_status = "Finalizado"
 
-    # --- NOVA SOLICITAÇÃO (ESPELHANDO A IMAGEM DO QUADRO VERMELHO) ---
+    # --- NOVA SOLICITAÇÃO ---
     with st.expander("➕ Nova Solicitação", expanded=False):
         with st.form("form_nova_linea", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -146,7 +182,12 @@ def render():
                             "data_emissao_nf": str(dt_emissao), "data_entrega_nf": str(dt_entrega),
                             "comprovante_url": urls, "status": "Aberto"
                         }
-                        db.table("solicitacoes").insert(payload).execute()
+                        # Insere e captura o retorno
+                        res = db.table("solicitacoes").insert(payload).execute()
+                        if res.data:
+                            # SALVA NO HISTÓRICO USANDO O ID RECÉM CRIADO
+                            salvar_historico(res.data[0]['id'], "Aberto", "Nova solicitação criada.")
+                            
                         st.success("Enviado com sucesso!")
                         st.rerun()
 
@@ -157,7 +198,7 @@ def render():
     
     if not df_filtrado.empty:
         c_sel, c_btn = st.columns([3, 1])
-        selecionado = c_sel.selectbox("Selecione para ver detalhes ou editar:", df_filtrado.index, 
+        selecionado = c_sel.selectbox("Selecione para ver detalhes:", df_filtrado.index, 
                                      format_func=lambda x: f"NF: {df_filtrado.loc[x, 'numero_nf']} | {df_filtrado.loc[x, 'cliente']}")
         
         if c_btn.button("🔍 Ver Detalhes / Editar", use_container_width=True):
@@ -166,32 +207,14 @@ def render():
         st.dataframe(
             df_filtrado,
             column_config={
-                "id": None, # Esconde o ID técnico
-                "user_id": None, 
-                "solicitante_email": None,
-                "created_at": st.column_config.DatetimeColumn(
-                    "Data Solicitação", 
-                    format="DD/MM/YYYY HH:mm" # Formato Brasil
-                ),
-                "numero_nf": "NF",
-                "cliente": "Cliente",
-                "tipo_custo": "Tipo",
-                "valor": st.column_config.NumberColumn(
-                    "Valor (R$)", 
-                    format="R$ %.2f"
-                ),
-                "data_emissao_nf": st.column_config.DateColumn(
-                    "Emissão", 
-                    format="DD/MM/YYYY" # Data sem hora
-                ),
-                "data_entrega_nf": st.column_config.DateColumn(
-                    "Entrega", 
-                    format="DD/MM/YYYY" # Data sem hora
-                ),
-                "status": "Status Atual",
-                "comprovante_url": None, # Escondemos a URL bruta
-                "observacao": "Motivo/Obs"
+                "id": None, "user_id": None, "solicitante_email": None,
+                "created_at": st.column_config.DatetimeColumn("Data Solicitação", format="DD/MM/YYYY HH:mm"),
+                "numero_nf": "NF", "cliente": "Cliente", "tipo_custo": "Tipo",
+                "valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
+                "data_emissao_nf": st.column_config.DateColumn("Emissão", format="DD/MM/YYYY"),
+                "data_entrega_nf": st.column_config.DateColumn("Entrega", format="DD/MM/YYYY"),
+                "data_validacao": st.column_config.DatetimeColumn("Validado em", format="DD/MM/YYYY HH:mm"),
+                "status": "Status Atual", "comprovante_url": None, "observacao": "Motivo/Obs", "validador_email": "Validador"
             },
-            hide_index=True, 
-            use_container_width=True
+            hide_index=True, use_container_width=True
         )
