@@ -1,73 +1,109 @@
 import streamlit as st
+import pandas as pd
 from src.database import db
 from datetime import datetime
 
+@st.dialog("⚖️ Analisar Solicitação")
+def modal_analise(item):
+    st.write(f"### NF: {item['numero_nf']} - {item['cliente']}")
+    st.write(f"**Transportador:** {item['solicitante_email']}")
+    
+    # Exibição dos dados para conferência
+    c1, c2 = st.columns(2)
+    c1.write(f"**Tipo:** {item['tipo_custo']}")
+    c2.write(f"**Valor:** R$ {item['valor']:.2f}")
+    
+    # Datas formatadas no modal
+    dt_emissao = datetime.strptime(item['data_emissao_nf'], '%Y-%m-%d').strftime('%d/%m/%Y')
+    dt_entrega = datetime.strptime(item['data_entrega_nf'], '%Y-%m-%d').strftime('%d/%m/%Y')
+    c1.write(f"**Emissão:** {dt_emissao}")
+    c2.write(f"**Entrega:** {dt_entrega}")
+
+    st.write("**Documentos anexados:**")
+    for idx, url in enumerate(item['comprovante_url']):
+        st.link_button(f"📄 Abrir Comprovante {idx+1}", url)
+
+    st.divider()
+    
+    # Ações do Validador
+    obs = st.text_area("Observações / Motivo da Pendência", placeholder="Obrigatório apenas se colocar em pendência ou recusar.")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    if col1.button("✅ Aprovar", use_container_width=True, type="primary"):
+        db.table("solicitacoes").update({
+            "status": "Aprovado",
+            "validador_email": st.session_state["email"],
+            "data_validacao": str(datetime.now())
+        }).eq("id", item['id']).execute()
+        st.success("Solicitação Aprovada!")
+        st.rerun()
+
+    if col2.button("⚠️ Pendência", use_container_width=True):
+        if not obs:
+            st.warning("Descreva o motivo da pendência.")
+        else:
+            db.table("solicitacoes").update({
+                "status": "Pendente Documentos",
+                "observacao": obs,
+                "validador_email": st.session_state["email"]
+            }).eq("id", item['id']).execute()
+            st.info("Status alterado para Pendente.")
+            st.rerun()
+
+    if col3.button("❌ Recusar", use_container_width=True):
+        if not obs:
+            st.warning("Descreva o motivo da recusa.")
+        else:
+            db.table("solicitacoes").update({
+                "status": "Recusada",
+                "observacao": obs,
+                "validador_email": st.session_state["email"]
+            }).eq("id", item['id']).execute()
+            st.error("Solicitação Recusada.")
+            st.rerun()
+
 def render():
-    st.title("🛡️ Painel de Validação")
-    
-    # Filtros
-    st.sidebar.header("Filtros")
-    filtro_status = st.sidebar.selectbox("Filtrar Status", ["Todos", "Aberto", "Pendente Documentos"])
-    
-    query = db.table("solicitacoes").select("*").order("created_at", desc=True)
-    if filtro_status != "Todos":
-        query = query.eq("status", filtro_status)
-    
-    items = query.execute().data
-    
-    if not items:
-        st.info("Nenhuma solicitação pendente.")
+    st.title("⚖️ Painel de Validação")
+    st.caption(f"Validador logado: {st.session_state['email']}")
+
+    # Busca todas as solicitações que não foram faturadas ainda
+    try:
+        response = db.table("solicitacoes").select("*").eq("faturado", False).order("id", desc=True).execute()
+        df = pd.DataFrame(response.data)
+    except:
+        st.error("Erro ao carregar dados para validação.")
         return
 
-    for item in items:
-        with st.container(border=True):
-            c1, c2, c3, c4 = st.columns([1, 2, 2, 2])
-            c1.write(f"**ID:** {item['id']}")
-            c2.write(f"**NF:** {item['numero_nf']}")
-            c3.write(f"**Cliente:** {item['cliente']}")
-            c4.write(f"**Status:** `{item['status']}`")
-            
-            with st.expander(f"Detalhes ID {item['id']}"):
-                st.write(f"**Valor:** R$ {item['valor']}")
-                st.write(f"**Solicitante:** {item['solicitante_email']}")
-                if item['comprovante_url']:
-                    st.link_button("Ver Comprovante", item['comprovante_url'])
-                
-                # Ações
-                st.write("---")
-                col_obs, col_btns = st.columns([2, 1])
-                
-                # Campo de texto para observação (obrigatório se não for aprovar)
-                obs_text = col_obs.text_area("Observação (Motivo da devolução/recusa)", key=f"obs_{item['id']}")
-                
-                with col_btns:
-                    if st.button("✅ Aprovar", key=f"apr_{item['id']}", use_container_width=True):
-                        db.table("solicitacoes").update({
-                            "status": "Faturar",
-                            "validador_email": st.session_state["email"],
-                            "data_validacao": datetime.now().isoformat()
-                        }).eq("id", item['id']).execute()
-                        st.success("Aprovado!")
-                        st.rerun()
-                    
-                    if st.button("⚠️ Pedir Correção", key=f"doc_{item['id']}", use_container_width=True):
-                        if not obs_text:
-                            st.error("Escreva o motivo na observação!")
-                        else:
-                            db.table("solicitacoes").update({
-                                "status": "Pendente Documentos",
-                                "observacao": obs_text
-                            }).eq("id", item['id']).execute()
-                            st.warning("Enviado para correção.")
-                            st.rerun()
+    if not df.empty:
+        # Filtros rápidos para o validador
+        st.subheader("Fila de Análise")
+        
+        c_sel, c_btn = st.columns([3, 1])
+        selecionado = c_sel.selectbox(
+            "Selecione uma solicitação para analisar:",
+            df.index,
+            format_func=lambda x: f"NF: {df.loc[x, 'numero_nf']} | {df.loc[x, 'cliente']} ({df.loc[x, 'status']})"
+        )
+        
+        if c_btn.button("🔍 Analisar Agora", use_container_width=True):
+            modal_analise(df.loc[selecionado].to_dict())
 
-                    if st.button("🚫 Recusar", key=f"rec_{item['id']}", type="primary", use_container_width=True):
-                        if not obs_text:
-                            st.error("Escreva o motivo da recusa!")
-                        else:
-                            db.table("solicitacoes").update({
-                                "status": "Recusada",
-                                "observacao": obs_text
-                            }).eq("id", item['id']).execute()
-                            st.error("Solicitação recusada.")
-                            st.rerun()
+        # Tabela com formato brasileiro
+        st.dataframe(
+            df,
+            column_config={
+                "id": None, "user_id": None,
+                "created_at": st.column_config.DatetimeColumn("Data Solicitação", format="DD/MM/YYYY HH:mm"),
+                "solicitante_email": "Transportador",
+                "numero_nf": "NF",
+                "valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+                "data_emissao_nf": st.column_config.DateColumn("Emissão", format="DD/MM/YYYY"),
+                "data_entrega_nf": st.column_config.DateColumn("Entrega", format="DD/MM/YYYY"),
+                "status": "Status",
+                "comprovante_url": None, "observacao": "Observação"
+            },
+            hide_index=True, use_container_width=True
+        )
+    else:
+        st.success("🎉 Tudo limpo! Nenhuma solicitação aguardando validação.")
