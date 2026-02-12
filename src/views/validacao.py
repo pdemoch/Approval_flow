@@ -34,19 +34,40 @@ def render():
                     st.link_button("Ver Comprovante", item['comprovante_url'])
                 
                 # Ações
-                col_btn1, col_btn2, col_btn3 = st.columns(3)
-                if col_btn1.button("Aprovar (Faturar)", key=f"apr_{item['id']}"):
-                    db.table("solicitacoes").update({
-                        "status": "Faturar",
-                        "validador_email": st.session_state["email"],
-                        "data_validacao": datetime.now().isoformat()
-                    }).eq("id", item['id']).execute()
-                    st.rerun()
+                st.write("---")
+                col_obs, col_btns = st.columns([2, 1])
+                
+                # Campo de texto para observação (obrigatório se não for aprovar)
+                obs_text = col_obs.text_area("Observação (Motivo da devolução/recusa)", key=f"obs_{item['id']}")
+                
+                with col_btns:
+                    if st.button("✅ Aprovar", key=f"apr_{item['id']}", use_container_width=True):
+                        db.table("solicitacoes").update({
+                            "status": "Faturar",
+                            "validador_email": st.session_state["email"],
+                            "data_validacao": datetime.now().isoformat()
+                        }).eq("id", item['id']).execute()
+                        st.success("Aprovado!")
+                        st.rerun()
                     
-                if col_btn2.button("Pedir Documentos", key=f"doc_{item['id']}"):
-                    db.table("solicitacoes").update({"status": "Pendente Documentos"}).eq("id", item['id']).execute()
-                    st.rerun()
+                    if st.button("⚠️ Pedir Correção", key=f"doc_{item['id']}", use_container_width=True):
+                        if not obs_text:
+                            st.error("Escreva o motivo na observação!")
+                        else:
+                            db.table("solicitacoes").update({
+                                "status": "Pendente Documentos",
+                                "observacao": obs_text
+                            }).eq("id", item['id']).execute()
+                            st.warning("Enviado para correção.")
+                            st.rerun()
 
-                if col_btn3.button("Recusar", key=f"rec_{item['id']}"):
-                    db.table("solicitacoes").update({"status": "Recusada"}).eq("id", item['id']).execute()
-                    st.rerun()
+                    if st.button("🚫 Recusar", key=f"rec_{item['id']}", type="primary", use_container_width=True):
+                        if not obs_text:
+                            st.error("Escreva o motivo da recusa!")
+                        else:
+                            db.table("solicitacoes").update({
+                                "status": "Recusada",
+                                "observacao": obs_text
+                            }).eq("id", item['id']).execute()
+                            st.error("Solicitação recusada.")
+                            st.rerun()
