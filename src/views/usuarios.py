@@ -16,7 +16,7 @@ def render():
             
             if res_p.data:
                 df_p = pd.DataFrame(res_p.data)
-                st.warning(f"Existem {len(df_p)} solicitações aguardando sua análise.")
+                st.warning(f"Existem {len(df_p)} solicitações aguardando sua .")
                 
                 for _, row in df_p.iterrows():
                     with st.container(border=True):
