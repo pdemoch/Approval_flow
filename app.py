@@ -1,5 +1,5 @@
 import streamlit as st
-from src.database import db, supabase # Importe os dois no topo
+from src.database import db, supabase
 from src.views import login, transportador, validacao, faturamento, gestao, usuarios 
 
 st.set_page_config(page_title="Sistema Logístico - Linea", layout="wide")
@@ -9,7 +9,7 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "role" not in st.session_state:
     st.session_state.role = None
-if "email" not in st.session_state: # Garanta que o email comece como None
+if "email" not in st.session_state: 
     st.session_state.email = None
 
 # --- SIDEBAR E LOGOUT ---
@@ -18,7 +18,6 @@ if st.session_state.user:
         st.image("https://d3p2amk7tvag7f.cloudfront.net/brands/cf5d5446a2f529654d1f3e3e8ff0f6ca24729485.png", width=150)
         st.divider()
         
-        # Uso do .get para evitar quebra caso o email seja None
         email_val = st.session_state.get('email')
         email_display = email_val.split('@')[0].capitalize() if email_val else "Usuário"
         
@@ -26,35 +25,40 @@ if st.session_state.user:
         st.caption(f"🔑 Perfil: {str(st.session_state.role).capitalize()}")
         
         if st.button("🚪 Sair", use_container_width=True):
-            st.session_state.user = None
-            st.session_state.role = None
-            st.session_state.email = None
+            # Limpeza completa para evitar cache de sessão
+            for key in list(st.session_state.keys()):
+                st.session_state[key] = None
+            supabase.auth.sign_out() # Encerra sessão no servidor também
             st.rerun()
 
 # --- ROTEAMENTO DE TELAS ---
 if not st.session_state.user:
     login.render()
 else:
-    # 1. SEGURANÇA: Só consulta o banco se tivermos o email na sessão
+    # 1. SEGURANÇA E VALIDAÇÃO DE STATUS
     if st.session_state.email:
         try:
-            # Busca status e flag de troca de senha
+            # Consulta as flags direto no banco para garantir tempo real
             res = db.table("profiles").select("status", "troca_senha_obrigatoria").eq("email", st.session_state.email).single().execute()
             
             if res.data:
                 status = res.data.get("status")
                 troca_obrigatoria = res.data.get("troca_senha_obrigatoria")
 
-                # A. Bloqueio de Aprovação
+                # A. Bloqueio de Aprovação (Tratando Ativo vs Suspenso/Pendente)
                 if status != "ativo":
-                    st.error("🚫 **Acesso Suspenso ou Pendente.**")
-                    st.info("Seu cadastro foi recebido e aguarda aprovação do administrador da Linea.")
+                    st.error("🚫 **Acesso Restrito.**")
+                    if status == "suspenso":
+                        st.warning("Sua conta foi suspensa temporariamente. Entre em contato com o administrador.")
+                    else:
+                        st.info("Seu cadastro aguarda aprovação da administração.")
+                    
                     if st.button("Voltar ao Login"):
                         st.session_state.user = None
                         st.rerun()
                     st.stop()
 
-                # B. Bloqueio de Troca de Senha
+                # B. Fluxo de Troca de Senha Obrigatória
                 if troca_obrigatoria:
                     st.warning("🔒 **Segurança: Primeiro Acesso**")
                     st.subheader("Defina sua nova senha:")
@@ -66,8 +70,9 @@ else:
                         if st.form_submit_button("Atualizar e Acessar"):
                             if nova_senha == confirma and len(nova_senha) >= 6:
                                 try:
-                                    # Atualiza senha no Auth e flag no Profile
+                                    # 1. Atualiza no Auth (Serviço de Autenticação)
                                     supabase.auth.update_user({"password": nova_senha})
+                                    # 2. Desativa a flag no Profiles (Seu Banco)
                                     db.table("profiles").update({"troca_senha_obrigatoria": False}).eq("email", st.session_state.email).execute()
                                     
                                     st.success("✅ Senha atualizada!")
@@ -80,10 +85,14 @@ else:
                     st.stop() 
 
         except Exception as e:
-            st.error(f"Erro de permissão: {e}")
+            # Caso o perfil tenha sido deletado mas o usuário ainda esteja logado no Auth
+            st.error(f"Erro de perfil: Usuário não encontrado na base de dados.")
+            if st.button("Fazer novo cadastro"):
+                st.session_state.user = None
+                st.rerun()
             st.stop()
 
-    # 2. ROTEAMENTO NORMAL
+    # 2. ROTEAMENTO POR PERFIL (ROLES)
     role = st.session_state.role
 
     if role == "transportador":
@@ -95,11 +104,15 @@ else:
     elif role == "gestao":
         gestao.render()
     elif role == "admin":
-        t1, t2, t3, t4, t5 = st.tabs(["📊 BI", "⚖️ Validação", "💰 Finanças", "🚚 Transportador", "👥 Usuários"])
-        with t1: gestao.render()
-        with t2: validacao.render()
-        with t3: faturamento.render()
-        with t4: transportador.render()
-        with t5: usuarios.render()
+        # Abas para visão total do Administrador
+        t_bi, t_val, t_fin, t_trans, t_usr = st.tabs(["📊 BI", "⚖️ Validação", "💰 Finanças", "🚚 Transportador", "👥 Usuários"])
+        with t_bi: gestao.render()
+        with t_val: validacao.render()
+        with t_fin: faturamento.render()
+        with t_trans: transportador.render()
+        with t_usr: usuarios.render()
     else:
-        st.error(f"Perfil '{role}' não reconhecido.")
+        st.error(f"Perfil '{role}' não reconhecido pelo sistema.")
+        if st.button("Sair"):
+            st.session_state.user = None
+            st.rerun()

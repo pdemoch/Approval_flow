@@ -28,25 +28,24 @@ def render():
                             if profile_res.data:
                                 status = profile_res.data.get("status")
                                 
-                                # --- NOVA TRAVA DE SEGURANÇA ---
+                                # --- TRAVAS DE SEGURANÇA ---
                                 if status == "pendente":
                                     st.warning("⏳ Seu cadastro foi recebido, mas ainda aguarda aprovação do Administrador.")
-                                    st.stop() # Para a execução aqui
+                                    st.stop()
                                 
                                 if status == "suspenso":
                                     st.error("🚫 Este usuário está suspenso.")
                                     st.stop()
 
-                                # 3. Se for 'ativo', libera o acesso
+                                # 3. Se estiver ativo, preenche a sessão
                                 st.session_state.user = auth_res.user
                                 st.session_state.email = email_input
                                 st.session_state.role = profile_res.data.get("role")
                                 st.success("Login realizado com sucesso!")
                                 st.rerun()
                             else:
-                                st.error("Perfil não encontrado na base de dados (Profiles).")
+                                st.error("Perfil não encontrado na tabela Profiles.")
                     except Exception as e:
-                        # Mostra o erro real para facilitar o debug no Render
                         st.error(f"Erro no Login: {str(e)}")
                 else:
                     st.warning("Preencha todos os campos.")
@@ -59,7 +58,7 @@ def render():
         with st.form("request_form", clear_on_submit=True):
             nome = st.text_input("Nome de Contato")
             email_reg = st.text_input("E-mail para Login").lower().strip()
-            role_desejada = st.selectbox("Perfil Desejado", ["transportador", "faturamento", "validacao"])
+            role_desejada = st.selectbox("Perfil Desejado", ["transportador", "faturamento", "validacao", "gestao"])
             
             st.divider()
             c1, c2 = st.columns(2)
@@ -72,19 +71,17 @@ def render():
             if st.form_submit_button("Enviar Solicitação", use_container_width=True):
                 if email_reg and nome and len(senha_reg) >= 6:
                     try:
-                        # 1. Tenta criar o usuário. 
-                        # NOTA: Se 'Confirm Email' estiver ligado no Supabase, o login falhará até o clique no e-mail.
+                        # 1. Tenta criar o usuário no Supabase Auth
                         res_auth = supabase.auth.sign_up({
                             "email": email_reg,
                             "password": senha_reg,
                             "options": {
-                                "data": {"nome": nome} # Metadados úteis
+                                "data": {"nome": nome} 
                             }
                         })
                         
-                        # Verifica se o Supabase retornou um usuário (sucesso)
                         if res_auth.user:
-                             # 2. Insere na tabela de profiles como PENDENTE
+                            # 2. Insere na tabela de profiles usando os nomes exatos das colunas do seu banco
                             db.table("profiles").insert({
                                 "email": email_reg,
                                 "nome_contato": nome,
@@ -96,14 +93,18 @@ def render():
                             }).execute()
                             
                             st.success("✅ Solicitação enviada! Aguarde a aprovação do Admin.")
-                            st.info("⚠️ Se você não conseguir logar, verifique se recebeu um e-mail de confirmação.")
+                            st.info("⚠️ Verifique sua caixa de entrada para confirmar o e-mail (se necessário).")
                         else:
-                            st.error("Não foi possível criar o usuário no Auth.")
+                            st.error("Erro técnico: O usuário não foi retornado pelo Auth.")
 
                     except Exception as e:
-                        st.error(f"Erro ao processar cadastro: {e}")
+                        # Tratamento amigável para e-mail duplicado
+                        if "23505" in str(e):
+                            st.error("📧 Este e-mail já possui um cadastro ou solicitação pendente.")
+                        else:
+                            st.error(f"Erro ao processar cadastro: {e}")
                 else:
-                    st.warning("Preencha Nome, E-mail e Senha (min 6 chars) corretamente.")
+                    st.warning("Preencha Nome, E-mail e Senha (mínimo 6 caracteres) corretamente.")
 
     # --- ABA 3: RECUPERAÇÃO DE SENHA ---
     with tab_reset:

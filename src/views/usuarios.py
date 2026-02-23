@@ -23,6 +23,7 @@ def render():
                         col_info, col_btn = st.columns([3, 1])
                         with col_info:
                             st.write(f"**E-mail:** {row['email']}")
+                            # Ajustado para usar 'nome_contato' conforme o banco
                             st.write(f"**Nome:** {row.get('nome_contato', 'N/A')} | **Perfil Desejado:** `{row['role']}`")
                             st.caption(f"Secundários: {row.get('email_secundario_1')} / {row.get('email_secundario_2')}")
                         
@@ -51,24 +52,43 @@ def render():
             if res.data:
                 df_original = pd.DataFrame(res.data)
                 
-                busca = st.text_input("🔍 Buscar usuário ativo", placeholder="Digite o e-mail...")
-                df_filtered = df_original[df_original['email'].str.contains(busca, case=False)] if busca else df_original
+                # Limpeza preventiva: removemos colunas que existam no banco mas não queremos no editor
+                cols_to_hide = ["id", "nome", "email_adicional_1", "email_adicional_2"]
+                for col in cols_to_hide:
+                    if col in df_original.columns:
+                        df_original = df_original.drop(columns=[col])
+
+                busca = st.text_input("🔍 Buscar usuário ativo", placeholder="Digite o e-mail ou nome...")
+                
+                # Filtro de busca inteligente (busca no e-mail ou no nome_contato)
+                if busca:
+                    mask = (df_original['email'].str.contains(busca, case=False)) | \
+                           (df_original['nome_contato'].str.contains(busca, case=False, na=False))
+                    df_filtered = df_original[mask]
+                else:
+                    df_filtered = df_original
 
                 # Editor de dados interativo
                 df_editado = st.data_editor(
                     df_filtered,
                     column_config={
-                        "id": None, # Esconde o ID técnico
-                        "email": st.column_config.TextColumn("E-mail", width="large"),
+                        "email": st.column_config.TextColumn("E-mail", width="large", disabled=True),
                         "role": st.column_config.SelectboxColumn(
-                            "Cargo", options=["transportador", "validacao", "faturamento", "gestao", "admin"]
+                            "Cargo", 
+                            options=["transportador", "validacao", "faturamento", "gestao", "admin"],
+                            required=True
                         ),
-                        "status": st.column_config.SelectboxColumn("Status", options=["ativo", "suspenso"]),
-                        "nome_contato": "Nome de Contato",
-                        "troca_senha_obrigatoria": "Reset Senha?"
+                        "status": st.column_config.SelectboxColumn(
+                            "Status", 
+                            options=["ativo", "suspenso"],
+                            required=True
+                        ),
+                        "nome_contato": st.column_config.TextColumn("Nome de Contato"),
+                        "email_secundario_1": st.column_config.TextColumn("E-mail Sec. 1"),
+                        "email_secundario_2": st.column_config.TextColumn("E-mail Sec. 2"),
+                        "troca_senha_obrigatoria": st.column_config.CheckboxColumn("Reset Senha?")
                     },
                     use_container_width=True,
-                    disabled=["email", "id"], # Impede alterar o e-mail (chave primária lógica)
                     key="editor_ativos"
                 )
 
@@ -77,10 +97,13 @@ def render():
                     with st.spinner("Sincronizando com o banco de dados..."):
                         try:
                             for index, row in df_editado.iterrows():
+                                # Fazemos o update apenas com os campos que o banco aceita
                                 db.table("profiles").update({
                                     "role": row['role'],
                                     "status": row['status'],
                                     "nome_contato": row.get('nome_contato'),
+                                    "email_secundario_1": row.get('email_secundario_1'),
+                                    "email_secundario_2": row.get('email_secundario_2'),
                                     "troca_senha_obrigatoria": row.get('troca_senha_obrigatoria')
                                 }).eq("email", row['email']).execute()
                             
