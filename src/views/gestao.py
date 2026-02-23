@@ -127,19 +127,31 @@ def render():
             if selecao.selection.rows:
                 idx = selecao.selection.rows[0]
                 row = df_view.iloc[idx]
-                st.markdown(f"**NF: {row['numero_nf']}**")
+                st.markdown(f"### 📜 Histórico da NF: {row['numero_nf']}")
                 
+                # Busca Histórico Real no Banco
                 hist = db.table("historico").select("*").eq("solicitacao_id", row['id']).order("created_at").execute()
+                
                 if hist.data:
                     for h in hist.data:
+                        # Converte data para fuso local (Brasília)
                         data_local = pd.to_datetime(h['created_at'], utc=True).tz_convert('America/Sao_Paulo')
+                        
                         st.write(f"🕒 {data_local.strftime('%d/%m %H:%M')}")
-                        st.caption(f"**{h['status']}**: {h['descricao']}")
+                        
+                        # USANDO OS NOMES REAIS DAS COLUNAS: status_na_epoca e observacao
+                        status = h.get('status_na_epoca', 'N/A')
+                        obs = h.get('observacao', 'Sem observação')
+                        user = h.get('usuario_email', 'Sistema')
+
+                        st.markdown(f"**{status}**")
+                        st.caption(f"💬 {obs}")
+                        st.caption(f"👤 *Por: {user}*")
                         st.divider()
                 else:
-                    st.info("Sem histórico registrado.")
+                    st.info("Sem trilha de auditoria para esta nota.")
             else:
-                st.info("👈 Selecione uma nota para ver a trilha de auditoria.")
+                st.info("👈 Selecione uma nota na tabela para ver a linha do tempo.")
 
     except Exception as e:
         st.error(f"Erro na gestão: {e}")
