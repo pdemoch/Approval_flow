@@ -58,7 +58,7 @@ def render():
         with st.form("request_form", clear_on_submit=True):
             nome = st.text_input("Nome de Contato")
             email_reg = st.text_input("E-mail para Login").lower().strip()
-            role_desejada = st.selectbox("Perfil Desejado", ["transportador", "faturamento", "validacao", "gestao"])
+            role_desejada = st.selectbox("Perfil Desejado", ["transportador", "faturamento", "validacao", "admin"])
             
             st.divider()
             c1, c2 = st.columns(2)

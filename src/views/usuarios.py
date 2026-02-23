@@ -75,7 +75,7 @@ def render():
                         "email": st.column_config.TextColumn("E-mail", width="large", disabled=True),
                         "role": st.column_config.SelectboxColumn(
                             "Cargo", 
-                            options=["transportador", "validacao", "faturamento", "gestao", "admin"],
+                            options=["transportador", "validacao", "faturamento", "admin"],
                             required=True
                         ),
                         "status": st.column_config.SelectboxColumn(
