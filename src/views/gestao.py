@@ -25,13 +25,18 @@ def render():
             st.info("Aguardando dados para consolidar indicadores.")
             return
 
-        df['created_at'] = pd.to_datetime(df['created_at'])
-        df['data_validacao'] = pd.to_datetime(df['data_validacao'])
+        # 1. Garante que as datas do banco sejam convertidas para UTC
+        df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
+        df['data_validacao'] = pd.to_datetime(df['data_validacao'], utc=True)
         
         # --- 2. FILTROS ESTRATÉGICOS ---
         st.sidebar.header("🎯 Filtros de Gestão")
-        data_inicio = st.sidebar.date_input("Início", df['created_at'].min())
-        data_fim = st.sidebar.date_input("Fim", datetime.now())
+        
+        # 2. Pega a data mínima do banco apenas se não estiver vazio
+        min_date = df['created_at'].min().date() if not df.empty else datetime.now().date()
+        
+        data_inicio = st.sidebar.date_input("Início", min_date)
+        data_fim = st.sidebar.date_input("Fim", datetime.now().date())
         
         transp_lista = ["Todos"] + sorted(df['solicitante_email'].unique().tolist())
         transp_sel = st.sidebar.selectbox("Transportador", transp_lista)
