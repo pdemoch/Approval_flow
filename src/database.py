@@ -4,10 +4,22 @@ import os
 
 @st.cache_resource
 def get_db() -> Client:
-    # 1. Tenta pegar dos secrets (Streamlit Cloud/Local)
-    # 2. Se não achar, tenta pegar das Variáveis de Ambiente (Render/Docker)
-    url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
-    key = st.secrets.get("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY")
+    url = None
+    key = None
+
+    # 1. Tenta pegar dos secrets do Streamlit (envolvido em try para não quebrar no Render)
+    try:
+        url = st.secrets.get("SUPABASE_URL")
+        key = st.secrets.get("SUPABASE_KEY")
+    except Exception:
+        # Se st.secrets falhar (comum no Render sem arquivo .toml), url e key continuam None
+        pass
+
+    # 2. Se não achou nos secrets, tenta pegar das Variáveis de Ambiente do OS
+    if not url:
+        url = os.environ.get("SUPABASE_URL")
+    if not key:
+        key = os.environ.get("SUPABASE_KEY")
     
     # Validação rigorosa antes de tentar conectar
     if not url or not key:
