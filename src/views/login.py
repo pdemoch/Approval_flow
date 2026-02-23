@@ -55,10 +55,17 @@ def render():
         st.subheader("Nova Solicitação de Acesso")
         st.caption("Seu acesso passará por aprovação da administração.")
         
+        # O clear_on_submit ajuda a resetar o form após o sucesso
         with st.form("request_form", clear_on_submit=True):
             nome = st.text_input("Nome de Contato")
             email_reg = st.text_input("E-mail para Login").lower().strip()
-            role_desejada = st.selectbox("Perfil Desejado", ["transportador", "faturamento", "validacao", "admin"])
+            
+            # Adicionei 'gestao' que faltava na sua lista anterior
+            role_desejada = st.selectbox(
+                "Perfil Desejado", 
+                options=["transportador", "faturamento", "validacao", "gestao", "admin"],
+                index=0
+            )
             
             st.divider()
             c1, c2 = st.columns(2)
@@ -81,26 +88,26 @@ def render():
                         })
                         
                         if res_auth.user:
-                            # 2. Insere na tabela de profiles usando os nomes exatos das colunas do seu banco
+                            # 2. Insere na tabela de profiles
+                            # A variável role_desejada captura exatamente o que foi clicado no selectbox
                             db.table("profiles").insert({
                                 "email": email_reg,
                                 "nome_contato": nome,
-                                "role": role_desejada,
+                                "role": role_desejada, 
                                 "email_secundario_1": e_sec1,
                                 "email_secundario_2": e_sec2,
                                 "status": "pendente",
                                 "troca_senha_obrigatoria": True
                             }).execute()
                             
-                            st.success("✅ Solicitação enviada! Aguarde a aprovação do Admin.")
-                            st.info("⚠️ Verifique sua caixa de entrada para confirmar o e-mail (se necessário).")
+                            st.success(f"✅ Solicitação para '{role_desejada}' enviada com sucesso!")
+                            st.info("⚠️ Aguarde a aprovação do Admin para acessar.")
                         else:
-                            st.error("Erro técnico: O usuário não foi retornado pelo Auth.")
+                            st.error("Erro técnico: O usuário não foi criado.")
 
                     except Exception as e:
-                        # Tratamento amigável para e-mail duplicado
                         if "23505" in str(e):
-                            st.error("📧 Este e-mail já possui um cadastro ou solicitação pendente.")
+                            st.error("📧 Este e-mail já possui um cadastro ativo ou pendente.")
                         else:
                             st.error(f"Erro ao processar cadastro: {e}")
                 else:
