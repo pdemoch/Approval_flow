@@ -14,7 +14,7 @@ def render():
     """, unsafe_allow_html=True)
 
     st.title("📊 Business Intelligence - Gestão de Custos Extras")
-    st.caption("Linea Alimentos | Visão Estratégica e Controle de SLA")
+    st.caption("Linea Alimentos | Visão Estratégica e Controle de SLA em Dias")
 
     # --- 1. CARREGAMENTO DE DADOS ---
     try:
@@ -25,16 +25,12 @@ def render():
             st.info("Aguardando dados para consolidar indicadores.")
             return
 
-        # 1. Garante que as datas do banco sejam convertidas para UTC
         df['created_at'] = pd.to_datetime(df['created_at'], utc=True)
         df['data_validacao'] = pd.to_datetime(df['data_validacao'], utc=True)
         
         # --- 2. FILTROS ESTRATÉGICOS ---
         st.sidebar.header("🎯 Filtros de Gestão")
-        
-        # 2. Pega a data mínima do banco apenas se não estiver vazio
         min_date = df['created_at'].min().date() if not df.empty else datetime.now().date()
-        
         data_inicio = st.sidebar.date_input("Início", min_date)
         data_fim = st.sidebar.date_input("Fim", datetime.now().date())
         
@@ -53,10 +49,10 @@ def render():
         total_aprovado = df_view[df_view['status'].isin(['Aprovado', 'Finalizado'])]['valor'].sum()
         c1.metric("Total Aprovado", f"R$ {total_aprovado:,.2f}")
 
-        # Cálculo de SLA
-        df_view['sla_hrs'] = (df_view['data_validacao'] - df_view['created_at']).dt.total_seconds() / 3600
-        sla_medio = df_view['sla_hrs'].mean()
-        c2.metric("SLA Médio (Ciclo)", f"{sla_medio:.1f} hrs" if not pd.isna(sla_medio) else "---")
+        # ALTERAÇÃO: Cálculo de SLA em DIAS (divisor 86400)
+        df_view['sla_dias'] = (df_view['data_validacao'] - df_view['created_at']).dt.total_seconds() / 86400
+        sla_medio = df_view['sla_dias'].mean()
+        c2.metric("SLA Médio (Ciclo)", f"{sla_medio:.2f} dias" if not pd.isna(sla_medio) else "---")
 
         pendentes = len(df_view[df_view['status'] == 'Aberto'])
         c3.metric("Notas em Fila", pendentes, delta=f"{pendentes} aguardando", delta_color="inverse")
@@ -66,7 +62,7 @@ def render():
 
         st.divider()
 
-        # --- 4. TOP 5 GARGALOS (SINTETIZAÇÃO) ---
+        # --- 4. TOP 5 GARGALOS ---
         st.subheader("⚠️ Top 5 Gargalos (Transportadores com mais Recusas)")
         df_recusadas = df_view[df_view['status'] == 'Recusada']
         if not df_recusadas.empty:
@@ -87,20 +83,33 @@ def render():
             fig_pie = px.pie(df_view, values='valor', names='tipo_custo', hole=0.5, title="Mix de Custos")
             st.plotly_chart(fig_pie, use_container_width=True)
 
-        # --- 6. TORRE DE CONTROLE INTERATIVA (SLA) ---
+        # --- 6. TORRE DE CONTROLE INTERATIVA (SLA EM DIAS) ---
         st.divider()
-        st.subheader("⏱️ Torre de Controle - SLA por Solicitação")
+        st.subheader("⏱️ Torre de Controle - SLA por Solicitação (Escala em Dias)")
         
-        fig_sla = px.scatter(df_view, x="created_at", y="sla_hrs", color="status",
+        # Eixo Y agora usa 'sla_dias'
+        fig_sla = px.scatter(df_view, x="created_at", y="sla_dias", color="status",
                             size="valor", hover_name="numero_nf",
-                            title="Análise de Lead Time (Bolinha acima da linha = Fora da Meta)")
-        fig_sla.add_hline(y=24, line_dash="dot", line_color="red", annotation_text="Meta 24h")
+                            labels={"sla_dias": "Dias para Conclusão", "created_at": "Data de Abertura"},
+                            title="Análise de Lead Time (Alvo: 2 dias)")
+        
+        # ALTERAÇÃO: Meta agora é 2 dias (48 horas)
+        fig_sla.add_hline(y=2, line_dash="dot", line_color="red", 
+                          annotation_text="Meta 48h (2 dias)", annotation_position="top left")
+        
+        # ALTERAÇÃO: Forçando o eixo X a mostrar marcações diárias
+        fig_sla.update_xaxes(
+            dtick="D1",  # Marcação a cada 1 dia
+            tickformat="%d/%m", # Formato Dia/Mês
+            title="Dias de Operação"
+        )
+        
+        fig_sla.update_yaxes(title="Dias Decorridos")
+        
         st.plotly_chart(fig_sla, use_container_width=True)
 
-        # --- 7. DRILL-DOWN: SELEÇÃO E HISTÓRICO ---
+        # --- 7. DRILL-DOWN ---
         st.subheader("📑 Detalhamento Interativo")
-        st.caption("Clique em uma linha para investigar o histórico da NF.")
-        
         col_list, col_hist = st.columns([1.5, 1])
         
         with col_list:
@@ -120,11 +129,11 @@ def render():
                 row = df_view.iloc[idx]
                 st.markdown(f"**NF: {row['numero_nf']}**")
                 
-                # Busca Histórico Real no Banco
                 hist = db.table("historico").select("*").eq("solicitacao_id", row['id']).order("created_at").execute()
                 if hist.data:
                     for h in hist.data:
-                        st.write(f"🕒 {pd.to_datetime(h['created_at']).strftime('%d/%m %H:%M')}")
+                        data_local = pd.to_datetime(h['created_at'], utc=True).tz_convert('America/Sao_Paulo')
+                        st.write(f"🕒 {data_local.strftime('%d/%m %H:%M')}")
                         st.caption(f"**{h['status']}**: {h['descricao']}")
                         st.divider()
                 else:
