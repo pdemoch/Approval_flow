@@ -149,14 +149,16 @@ def render():
         return
 
     # --- FILTROS (KPIs) ---
-    if not df.empty:
+    if not df.empty and 'status' in df.columns:
         cols = st.columns(4)
         if cols[0].button(f"🔵 TODOS\n{len(df)}", key="f_todos"): st.session_state.filtro_status = "Todos"
         pen = len(df[df['status'] == 'Pendente Documentos'])
         if cols[1].button(f"🔴 PENDENTES\n{pen}", key="f_pendente"): st.session_state.filtro_status = "Pendente Documentos"
         ana = len(df[df['status'] == 'Aberto'])
         if cols[2].button(f"🟡 ANÁLISE\n{ana}", key="f_analise"): st.session_state.filtro_status = "Aberto"
-        fat = len(df[df['faturado'] == True])
+        
+        # Proteção para faturado também
+        fat = len(df[df['faturado'] == True]) if 'faturado' in df.columns else 0
         if cols[3].button(f"🟢 FATURADOS\n{fat}", key="f_faturado"): st.session_state.filtro_status = "Finalizado"
 
     # --- NOVA SOLICITAÇÃO ---
@@ -193,7 +195,13 @@ def render():
 
     # --- LISTA FILTRADA ---
     st.divider()
-    df_filtrado = df if st.session_state.filtro_status == "Todos" else df[df['status'] == st.session_state.filtro_status]
+    
+    # === AQUI ESTÁ A CORREÇÃO PRINCIPAL ===
+    if not df.empty and 'status' in df.columns:
+        df_filtrado = df if st.session_state.filtro_status == "Todos" else df[df['status'] == st.session_state.filtro_status]
+    else:
+        df_filtrado = df # Fica vazio com segurança
+        
     st.subheader(f"Lista: {st.session_state.filtro_status}")
     
     if not df_filtrado.empty:
@@ -218,3 +226,5 @@ def render():
             },
             hide_index=True, use_container_width=True
         )
+    else:
+        st.info("📦 O banco de dados está vazio no momento. Crie uma nova solicitação acima.")
