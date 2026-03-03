@@ -23,8 +23,12 @@ def render():
                         col_info, col_btn = st.columns([3, 1])
                         with col_info:
                             st.write(f"**E-mail:** {row['email']}")
-                            # Ajustado para usar 'nome_contato' conforme o banco
                             st.write(f"**Nome:** {row.get('nome_contato', 'N/A')} | **Perfil Desejado:** `{row['role']}`")
+                            
+                            # NOVO: Mostra a empresa se o perfil for transportador
+                            if row['role'] == 'transportador':
+                                st.info(f"🚚 **Transportadora:** {row.get('nome_transportador', 'Não informado')}")
+                                
                             st.caption(f"Secundários: {row.get('email_secundario_1')} / {row.get('email_secundario_2')}")
                         
                         with col_btn:
@@ -52,7 +56,7 @@ def render():
             if res.data:
                 df_original = pd.DataFrame(res.data)
                 
-                # Limpeza preventiva: removemos colunas que existam no banco mas não queremos no editor
+                # Limpeza preventiva: removemos colunas que não queremos no editor
                 cols_to_hide = ["id", "nome", "email_adicional_1", "email_adicional_2"]
                 for col in cols_to_hide:
                     if col in df_original.columns:
@@ -60,7 +64,7 @@ def render():
 
                 busca = st.text_input("🔍 Buscar usuário ativo", placeholder="Digite o e-mail ou nome...")
                 
-                # Filtro de busca inteligente (busca no e-mail ou no nome_contato)
+                # Filtro de busca inteligente
                 if busca:
                     mask = (df_original['email'].str.contains(busca, case=False)) | \
                            (df_original['nome_contato'].str.contains(busca, case=False, na=False))
@@ -84,6 +88,8 @@ def render():
                             required=True
                         ),
                         "nome_contato": st.column_config.TextColumn("Nome de Contato"),
+                        # NOVO: Coluna editável para o nome da transportadora
+                        "nome_transportador": st.column_config.TextColumn("Empresa (Transportador)"), 
                         "email_secundario_1": st.column_config.TextColumn("E-mail Sec. 1"),
                         "email_secundario_2": st.column_config.TextColumn("E-mail Sec. 2"),
                         "troca_senha_obrigatoria": st.column_config.CheckboxColumn("Reset Senha?")
@@ -102,6 +108,8 @@ def render():
                                     "role": row['role'],
                                     "status": row['status'],
                                     "nome_contato": row.get('nome_contato'),
+                                    # NOVO: Salva a alteração da transportadora no banco
+                                    "nome_transportador": row.get('nome_transportador'),
                                     "email_secundario_1": row.get('email_secundario_1'),
                                     "email_secundario_2": row.get('email_secundario_2'),
                                     "troca_senha_obrigatoria": row.get('troca_senha_obrigatoria')

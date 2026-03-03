@@ -77,9 +77,7 @@ def render():
         
         with st.form("form_faturamento"):
             # Deixamos o valor padrão vazio para forçar o preenchimento manual
-            cod_lote = st.text_input("📝 Digite o Código Interno do Lote (Obrigatório)", value="")
-            
-            st.caption("Exemplo: Nº do SAP, Ordem de Pagamento ou Código do Banco.")
+            cod_lote = st.text_input("📝 Digite o Código da Fatura (Obrigatório)", value="")
 
             if st.form_submit_button("🚀 Finalizar Faturamento e Gerar Lote", type="primary"):
                 # VALIDAÇÃO: Se o código estiver vazio, não prossegue
